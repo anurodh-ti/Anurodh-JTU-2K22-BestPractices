@@ -3,6 +3,7 @@ from __future__ import unicode_literals
 from decimal import Decimal
 import pandas as pd
 import numpy as np
+import logging
 import urllib.request
 from datetime import datetime
 
@@ -20,7 +21,7 @@ from restapi.models import *
 from restapi.serializers import *
 from restapi.custom_exception import *
 
-
+logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', level=logging.DEBUG)
 
 def index(_request):
     return HttpResponse("Hello, world. You're at Rest.")
@@ -29,6 +30,7 @@ def index(_request):
 @api_view(['POST'])
 def logout(request):
     request.user.auth_token.delete()
+    logging.info("Logged out successfully")
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -49,6 +51,7 @@ def balance(request):
     final_balance = {k: v for k, v in final_balance.items() if v != 0}
 
     response = [{"user": k, "amount": int(v)} for k, v in final_balance.items()]
+    logging.info("Final balance calculated successfully")
     return Response(response, status=200)
 
 
@@ -91,26 +94,40 @@ class GroupViewSet(ModelViewSet):
     queryset = Groups.objects.all()
     serializer_class = GroupSerializer
 
-    def get_queryset(self):
+    def get_query_set(self):
+        '''
+            Gets Queryset of Users
+        '''
+        logging.info("get_query_set function initiated")
         user = self.request.user
         groups = user.members.all()
         if self.request.query_params.get('q', None) is not None:
             groups = groups.filter(name__icontains=self.request.query_params.get('q', None))
+        logging.info("get_query_set function completed")
         return groups
 
     def create(self, request, *args, **kwargs):
+        '''
+            Adds user to a group
+        '''
+        logger.info("Create funtion initiated")
         user = self.request.user
         data = self.request.data
         group = Groups(**data)
         group.save()
         group.members.add(user)
         serializer = self.get_serializer(group)
+        logger.info("Creation of group and addition of users to it executed")
         return Response(serializer.data, status=201)
 
     @action(methods=['put'], detail=True)
     def members(self, request, pk=None):
+        '''
+            Adding members to a group
+        '''
+        logging.info("members function initiated")
         group = Groups.objects.get(id=pk)
-        if group not in self.get_queryset():
+        if group not in self.get_query_set():
             raise UnauthorizedUserException()
         body = request.data
         if body.get('add', None) is not None and body['add'].get('user_ids', None) is not None:
@@ -122,21 +139,27 @@ class GroupViewSet(ModelViewSet):
             for user_id in removed_ids:
                 group.members.remove(user_id)
         group.save()
+        logging.info("members function done")
         return Response(status=204)
 
     @action(methods=['get'], detail=True)
     def expenses(self, _request, pk=None):
+        '''
+            Group Expenses Returned
+        '''
+        logging.info("expenses function initiated")
         group = Groups.objects.get(id=pk)
-        if group not in self.get_queryset():
+        if group not in self.get_query_set():
             raise UnauthorizedUserException()
         expenses = group.expenses_set
         serializer = ExpensesSerializer(expenses, many=True)
+        logging.info("expenses function executed")
         return Response(serializer.data, status=200)
 
     @action(methods=['get'], detail=True)
     def balances(self, _request, pk=None):
         group = Groups.objects.get(id=pk)
-        if group not in self.get_queryset():
+        if group not in self.get_query_set():
             raise UnauthorizedUserException()
         expenses = Expenses.objects.filter(group=group)
         dues = {}
@@ -160,7 +183,7 @@ class GroupViewSet(ModelViewSet):
                 start += 1
             else:
                 end -= 1
-
+        logging.info("balance function executed")
         return Response(balances, status=200)
 
 
@@ -180,7 +203,11 @@ class ExpensesViewSet(ModelViewSet):
 @api_view(['post'])
 @authentication_classes([])
 @permission_classes([])
-def logProcessor(request):
+def log_processor(request):
+    '''
+        Log_files got processed
+    '''
+    logging.info("logprocessor initiated")
     data = request.data
     num_threads = data['parallelFileProcessingCount']
     log_files = data['logFiles']
@@ -195,17 +222,27 @@ def logProcessor(request):
     cleaned = transform(sorted_logs)
     data = aggregate(cleaned)
     response = response_format(data)
+    logging.info("logprocessor executed")
     return Response({"response":response}, status=status.HTTP_200_OK)
 
 def sort_by_time_stamp(logs):
+    '''
+        Sorts log data by time
+    '''
+    logging.info("Sorting data by time initiated")
     data = []
     for log in logs:
         data.append(log.split(" "))
     # print(data)
     data = sorted(data, key=lambda elem: elem[1])
+    logging.info("Sorting data on the basis of time executed")
     return data
 
 def response_format(raw_data):
+    '''
+        Edits response format of raw_data
+    '''
+    logging.info("Editing response format initiated")
     response = []
     for timestamp, data in raw_data.items():
         entry = {'timestamp': timestamp}
@@ -215,19 +252,29 @@ def response_format(raw_data):
             logs.append({'exception': exception, 'count': count})
         entry['logs'] = logs
         response.append(entry)
+    logging.info("Editing response format executed")
     return response
 
 def aggregate(cleaned_logs):
+    '''
+        Aggregates clean logs
+    '''
+    logging.info("Aggregating clean logs initiated")
     data = {}
     for log in cleaned_logs:
         [key, text] = log
         value = data.get(key, {})
         value[text] = value.get(text, 0)+1
         data[key] = value
+    logging.info("Aggregation of clean logs executed")
     return data
 
 
 def transform(logs):
+    '''
+        Transforms logs
+    '''
+    logging.info("Trasformation of log initiated")
     result = []
     for log in logs:
         [_, timestamp, text] = log
@@ -250,7 +297,7 @@ def transform(logs):
 
         result.append([key, text])
         print(key)
-
+    logging.info("Trasformation of log executed")
     return result
 
 
@@ -263,10 +310,12 @@ def multiThreadedReader(urls, num_threads):
     """
         Read multiple files through HTTP
     """
+    logging.info("multithreadreader function initiated")
     result = []
     for url in urls:
         data = reader(url, 60)
         data = data.decode('utf-8')
         result.extend(data.split("\n"))
     result = sorted(result, key=lambda elem:elem[1])
+    logging.info("multithreadreader function executed")
     return result
