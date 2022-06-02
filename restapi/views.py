@@ -6,6 +6,7 @@ import numpy as np
 import logging
 import urllib.request
 from datetime import datetime
+from restapi.constants import TIMEOUT
 
 from django.http import HttpResponse
 from django.contrib.auth.models import User
@@ -305,17 +306,18 @@ def reader(url, timeout):
     with urllib.request.urlopen(url, timeout=timeout) as conn:
         return conn.read()
 
-
 def multiThreadedReader(urls, num_threads):
     """
         Read multiple files through HTTP
     """
     logging.info("multithreadreader function initiated")
     result = []
-    for url in urls:
-        data = reader(url, 60)
-        data = data.decode('utf-8')
-        result.extend(data.split("\n"))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = {executor.submit(reader, url, TIMEOUT) : url for url in urls}
+        for future in concurrent.futures.as_completed(futures):
+            data = reader(url, TIMEOUT)
+            data = data.decode('utf-8')
+            result.extend(data.split("\n"))
     result = sorted(result, key=lambda elem:elem[1])
     logging.info("multithreadreader function executed")
     return result
